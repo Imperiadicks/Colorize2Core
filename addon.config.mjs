@@ -1,0 +1,16 @@
+export default {
+    id: '31c62ba2-b6f6-4ba7-934e-39146eccfe69',
+    directoryName: '31c62ba2-b6f6-4ba7-934e-39146eccfe69',
+    name: 'Colorize2Core',
+    description: 'Динамическая палитра, фон и эффекты темы Colorize 2.',
+    version: '1.0.0',
+    author: 'imperiadicks',
+    type: 'script',
+    image: 'Assets/technical-addon.png',
+    banner: 'Assets/colorize2core-banner-v3.png',
+    libraryLogo: '',
+    tags: ['PulseSync'],
+    dependencies: [],
+    allowedUrls: [],
+    supportedVersions: ['>=5.75.0'],
+}
