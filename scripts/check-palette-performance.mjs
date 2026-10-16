@@ -7,7 +7,7 @@ const root=fileURLToPath(new URL('../',import.meta.url))
 const current=await fs.readFile(root+'dist/31c62ba2-b6f6-4ba7-934e-39146eccfe69/script.js','utf8')
 async function profile(code,label){
  let result
- const html=`<html class="ym-dark-theme"><head></head><body><img data-test-id="ENTITY_COVER_IMAGE" width="64" height="64"><script>
+ const html=`<html class="ym-dark-theme"><head><style>:root{--colorize-theme-active:1}</style></head><head></head><body><img data-test-id="ENTITY_COVER_IMAGE" width="64" height="64"><script>
  window.values={useCustomColor:true,baseColor:'#ff0000',FullVibe:false,autoVibeButtonContrast:false};window.listeners=[];window.wait=ms=>new Promise(r=>setTimeout(r,ms));
  window.pulsesyncApi={getSettings:()=>({getCurrent:()=>values,onChange:fn=>{listeners.push(fn);return()=>{}}})};
  window.rootWrites=0;window.geometryReads=0;window.cssCommits=0;
@@ -31,7 +31,7 @@ if(process.argv.includes('--compare-backup')){
  result.before=await profile(baseline.outputFiles[0].text,'colorize2-palette-baseline')
  assert.ok(result.before.rootWrites>result.current.rootWrites)
 }
-const race=`<html class="ym-dark-theme"><body><div data-test-id="PLAYERBAR_DESKTOP_COVER_CONTAINER"><img src="/slow.svg"></div><script>window.values={useCustomColor:false,FullVibe:false,autoVibeButtonContrast:false};window.listeners=[];window.wait=ms=>new Promise(r=>setTimeout(r,ms));window.pulsesyncApi={getSettings:()=>({getCurrent:()=>values,onChange:fn=>{listeners.push(fn);return()=>{}}})};</script><script>${current}</script></body></html>`
+const race=`<html class="ym-dark-theme"><head><style>:root{--colorize-theme-active:1}</style></head><body><div data-test-id="PLAYERBAR_DESKTOP_COVER_CONTAINER"><img src="/slow.svg"></div><script>window.values={useCustomColor:false,FullVibe:false,autoVibeButtonContrast:false};window.listeners=[];window.wait=ms=>new Promise(r=>setTimeout(r,ms));window.pulsesyncApi={getSettings:()=>({getCurrent:()=>values,onChange:fn=>{listeners.push(fn);return()=>{}}})};</script><script>${current}</script></body></html>`
 await browserTest('colorize2-cancel-stale-cover',race,async({evaluate})=>{
  const state=await evaluate(`(async()=>{values.useCustomColor=true;values.baseColor='#00ff00';const start=performance.now();listeners.forEach(fn=>fn(values));await wait(200);return{latency:performance.now()-start,color:getComputedStyle(document.documentElement).getPropertyValue('--color-dark-5').trim()}})()`)
  assert.match(state.color,/hsl\(120,/,'Latest colour must not wait for old cover download')

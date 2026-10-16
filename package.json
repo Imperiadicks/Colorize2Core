@@ -13,7 +13,8 @@
     "build:sync": "node ./scripts/manage.mjs build-sync",
     "test:ui": "node scripts/check-controls-palette.mjs",
     "test:performance": "node scripts/check-palette-performance.mjs",
-    "test:contrast": "node scripts/check-vibe-contrast.mjs"
+    "test:contrast": "node scripts/check-vibe-contrast.mjs",
+    "test:lifecycle": "node scripts/check-theme-lifecycle.mjs"
   },
   "engines": {
     "node": ">=20"

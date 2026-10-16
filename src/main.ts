@@ -1,7 +1,11 @@
 // @ts-nocheck
 import { createPaletteTransition } from './palette-transition'
 import { createWheelIconTint } from './wheel-icon-tint'
-;(() => {
+import { createRuntimeScope } from './runtime-scope'
+function startRuntime() {
+    const scope = createRuntimeScope()
+    const { setTimeout, clearTimeout, setInterval, requestAnimationFrame, cancelAnimationFrame, MutationObserver, Image } = scope
+
     /*──────────────────────── helpers ────────────────────────*/
     const LOG = (...a) => console.log('[Colorize 2]', ...a)
     const CHANGE_LOG_STYLE = 'color:#7dd3fc;font-weight:700'
@@ -122,6 +126,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
     function clearOldVibeSize() {
         let changed = 0
         document.querySelectorAll(OLD_VIBE_SELECTOR).forEach(vibe => {
+            scope.rememberStyle(vibe, 'height', 'min-height')
             if (vibe.style.getPropertyValue('height')) {
                 vibe.style.removeProperty('height')
                 changed++
@@ -776,6 +781,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
 `
 
     const paletteTransition = createPaletteTransition()
+    scope.cleanup(() => paletteTransition.dispose())
     const updateWheelIconTint = createWheelIconTint()
     let lastPaletteSignature = ''
     const applyVars = vars => {
@@ -986,6 +992,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         if (imageURL === lastBackgroundURL && target.querySelector('.bg-layer')) return
         if (imageURL === pendingBackgroundURL) return
         pendingBackgroundURL = imageURL
+        scope.rememberStyle(target, 'position', 'overflow', 'isolation')
         target.style.setProperty('position', 'relative', 'important')
         target.style.setProperty('overflow', 'hidden', 'important')
         target.style.setProperty('isolation', 'isolate', 'important')
@@ -995,13 +1002,14 @@ import { createWheelIconTint } from './wheel-icon-tint'
         img.crossOrigin = 'anonymous'
 
         img.onload = () => {
-            if (pendingBackgroundURL !== imageURL) return
+            if (scope.disposed || pendingBackgroundURL !== imageURL) return
             pendingBackgroundURL = ''
             if (!SETTINGS.enableBackgroundImage || !target.isConnected || target !== getVibeBackgroundTarget()) return
             lastBackgroundURL = imageURL
 
             const wrapper = document.createElement('div')
             wrapper.className = 'bg-layer'
+            scope.cleanup(() => wrapper.remove())
 
             const imageLayer = document.createElement('div')
             imageLayer.className = 'bg-cover'
@@ -1099,9 +1107,11 @@ import { createWheelIconTint } from './wheel-icon-tint'
     function setupAvatarZoomEffect() {
         const avatar = document.querySelector('[class*="PageHeaderCover_coverImage"]')
         if (!avatar || avatar.classList.contains('avatar-zoom-initialized')) return
+        scope.rememberStyle(avatar, 'transform')
+        scope.cleanup(() => avatar.classList.remove('avatar-zoom-initialized'))
         avatar.classList.add('avatar-zoom-initialized')
-        avatar.addEventListener('mousemove', handleAvatarMouseMove)
-        avatar.addEventListener('mouseleave', handleAvatarMouseLeave)
+        scope.listen(avatar, 'mousemove', handleAvatarMouseMove)
+        scope.listen(avatar, 'mouseleave', handleAvatarMouseLeave)
         LOG_CHANGE('setupAvatarZoomEffect', 'эффект зума аватара подключён', { target: nodeName(avatar) })
     }
 
@@ -1130,6 +1140,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
 
         if (oldVibe && (fullVibeNow !== lastFullVibe || force || !sizeApplied)) {
             lastFullVibe = fullVibeNow
+            scope.rememberStyle(oldVibe, 'height')
             oldVibe.style.setProperty('height', targetHeight, 'important')
             LOG_CHANGE('syncFullVibe', 'изменена высота старого Vibe', { enabled: fullVibeNow, height: targetHeight, target: nodeName(oldVibe) })
         }
@@ -1143,6 +1154,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
     let contrastCache = null
 
     function scheduleRecolor(force = false, delay = 120) {
+        if (scope.disposed) return
         if (pendingPaletteCover && (SETTINGS.useCustomColor || pendingPaletteCover !== coverURL()))
             COVER_ANALYSIS_CANCEL.get(pendingPaletteCover)?.()
         recolorForceQueued = recolorForceQueued || force
@@ -1186,7 +1198,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         const src = coverURL()
         const useHex = SETTINGS.useCustomColor
         const hex = SETTINGS.baseColor || ''
-        const stale = () => useHex !== SETTINGS.useCustomColor || (useHex ? hex !== (SETTINGS.baseColor || '') : src !== coverURL())
+        const stale = () => scope.disposed || useHex !== SETTINGS.useCustomColor || (useHex ? hex !== (SETTINGS.baseColor || '') : src !== coverURL())
 
         let base, gradC1, gradC2
         let coverAnalysis = null
@@ -1316,6 +1328,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
     }
 
     const handleSettingsChange = () => {
+        if (scope.disposed) return
         const newSettings = getSettings()
         const newJSON = JSON.stringify(newSettings)
         if (newJSON === lastSETTINGS_JSON) return
@@ -1329,6 +1342,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
     }
 
     const initSettings = async () => {
+        if (scope.disposed) return
         if (!window.pulsesyncApi || typeof window.pulsesyncApi.getSettings !== 'function') {
             setTimeout(initSettings, 1000)
             return
@@ -1348,7 +1362,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         themeSettingsStore = api
         SETTINGS = getSettings()
         lastSETTINGS_JSON = JSON.stringify(SETTINGS)
-        api.onChange(handleSettingsChange)
+        scope.cleanup(api.onChange(handleSettingsChange))
         syncWaveLayoutState()
         checkVibeReturn()
         scheduleRecolor(true, 0)
@@ -1356,7 +1370,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         LOG_CHANGE('initSettings', 'тема инициализирована и слушатель настроек подключён')
     }
 
-    document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', initSettings) : initSettings()
+    document.readyState === 'loading' ? scope.listen(document, 'DOMContentLoaded', initSettings) : initSettings()
 
     const RECOLOR_DOM_SELECTOR = [
         OLD_VIBE_SELECTOR,
@@ -1400,7 +1414,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         })
     }
 
-    document.addEventListener('load', event => {
+    scope.listen(document, 'load', event => {
         if (event.target?.matches?.(PRIMARY_COVER_SELECTOR)) {
             coverNodeCacheTime = 0
             scheduleRecolor(false, 0)
@@ -1443,7 +1457,7 @@ import { createWheelIconTint } from './wheel-icon-tint'
         }, 5000)
     }
 
-    document.addEventListener('transitionend', event => {
+    scope.listen(document, 'transitionend', event => {
         if (event.propertyName?.startsWith('--vibe-gradient-stop-') || event.propertyName === 'background-color') {
             contrastCache = null
             scheduleRecolor(false, 0)
@@ -1473,12 +1487,53 @@ import { createWheelIconTint } from './wheel-icon-tint'
             }
             wrapped.__colorizeWrapped = true
             history[method] = wrapped
+            scope.cleanup(() => { if (history[method] === wrapped) history[method] = original })
             LOG_CHANGE('monitorPageChangeAndSetBackground', `history.${method} обёрнут для отслеживания навигации`)
         })
 
-        window.addEventListener('popstate', () => setTimeout(handlePageChange, 0))
-        window.addEventListener('hashchange', () => setTimeout(handlePageChange, 0))
+        scope.listen(window, 'popstate', () => setTimeout(handlePageChange, 0))
+        scope.listen(window, 'hashchange', () => setTimeout(handlePageChange, 0))
     }
 
     monitorPageChangeAndSetBackground()
+    return () => {
+        scope.dispose()
+        COVER_ANALYSIS_CANCEL.forEach(cancel => cancel())
+        document.getElementById('colorize-style')?.remove()
+        document.querySelectorAll('.colorize-vibe-control-contrast').forEach(node => node.classList.remove('colorize-vibe-control-contrast'))
+        document.documentElement.classList.remove('colorize-new-wave-page', 'colorize-bright-vibe-controls', 'colorize-borderless', 'bg-static-mode')
+        document.documentElement.style.removeProperty('--colorize-wheel-icon-filter')
+        document.body.classList.remove('sc-has-grad')
+    }
+}
+
+;(() => {
+    const previous = window.__colorize2CoreLifecycle
+    previous?.()
+    let stop = null
+    const update = () => {
+        const active = getComputedStyle(document.documentElement).getPropertyValue('--colorize-theme-active').trim() === '1'
+        if (active && !stop) stop = startRuntime()
+        else if (!active && stop) { const dispose = stop; stop = null; dispose() }
+    }
+    const onStylesheetLoad = event => { if (event.target?.matches?.('link[rel="stylesheet"]')) update() }
+    const observer = new MutationObserver(update)
+    const initialize = () => {
+        observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'media', 'href', 'rel'] })
+        update()
+    }
+    const dispose = () => {
+        observer.disconnect()
+        document.removeEventListener('DOMContentLoaded', initialize)
+        document.removeEventListener('load', onStylesheetLoad, true)
+        window.removeEventListener('pagehide', dispose)
+        stop?.()
+        stop = null
+        if (window.__colorize2CoreLifecycle === dispose) delete window.__colorize2CoreLifecycle
+    }
+    window.__colorize2CoreLifecycle = dispose
+    document.addEventListener('load', onStylesheetLoad, true)
+    window.addEventListener('pagehide', dispose)
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true })
+    else initialize()
 })()

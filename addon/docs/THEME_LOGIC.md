@@ -4,6 +4,7 @@
 
 | Файл | Назначение |
 | --- | --- |
+| `src/runtime-scope.ts` | Учёт таймеров, кадров, изображений, наблюдателей, подписок и изменённых inline-стилей |
 | `src/main.ts` | Настройки, анализ обложки, генерация палитры, фоновые слои, контраст, обработка DOM |
 | `src/palette-transition.ts` | Переходы фоновых градиентов |
 | `src/wheel-icon-tint.ts` | Цветовые фильтры специальных иконок колеса |
@@ -16,6 +17,24 @@
 В `src/main.ts` директива `@ts-nocheck` отключает проверку типов основного модуля;
 проверка вспомогательных модулей выполняется по `tsconfig.json`.
 Примеры в документе извлечены из текущих исходников TypeScript.
+
+## Жизненный цикл темы
+
+CSS Colorize 2 объявляет `--colorize-theme-active: 1` на `:root`.
+Внешний наблюдатель Core отслеживает изменения таблиц стилей в `document.head`.
+Runtime запускается только при наличии этого признака в computed style.
+
+При отключении темы выполняется освобождение ресурсов `createRuntimeScope`:
+отмена таймеров и requestAnimationFrame, отключение MutationObserver содержимого,
+отписка от настроек, отмена ожидающего анализа изображений и удаление фоновых слоёв.
+Генерируемый stylesheet, управляющие классы и фильтр колеса удаляются;
+сохранённые inline-размеры и свойства контейнера восстанавливаются.
+Обёртки history возвращаются к исходным функциям, если их не заменил другой код.
+Поздние асинхронные результаты не применяются после остановки runtime.
+
+В неактивном состоянии сохраняется только наблюдение за таблицами стилей и их
+загрузкой. Периодические проверки, обработка обложек и подписка на настройки отсутствуют.
+Повторное включение темы создаёт один runtime с одной подпиской на настройки.
 
 ## Настройки темы
 
@@ -213,6 +232,7 @@ function backgroundReplace(imageURL) {
     if (imageURL === lastBackgroundURL && target.querySelector('.bg-layer')) return
     if (imageURL === pendingBackgroundURL) return
     pendingBackgroundURL = imageURL
+    scope.rememberStyle(target, 'position', 'overflow', 'isolation')
     target.style.setProperty('position', 'relative', 'important')
     target.style.setProperty('overflow', 'hidden', 'important')
     target.style.setProperty('isolation', 'isolate', 'important')
@@ -222,13 +242,14 @@ function backgroundReplace(imageURL) {
     img.crossOrigin = 'anonymous'
 
     img.onload = () => {
-        if (pendingBackgroundURL !== imageURL) return
+        if (scope.disposed || pendingBackgroundURL !== imageURL) return
         pendingBackgroundURL = ''
         if (!SETTINGS.enableBackgroundImage || !target.isConnected || target !== getVibeBackgroundTarget()) return
         lastBackgroundURL = imageURL
 
         const wrapper = document.createElement('div')
         wrapper.className = 'bg-layer'
+        scope.cleanup(() => wrapper.remove())
 
         const imageLayer = document.createElement('div')
         imageLayer.className = 'bg-cover'
@@ -308,13 +329,9 @@ function syncFullVibe(force = false) {
 
     if (oldVibe && (fullVibeNow !== lastFullVibe || force || !sizeApplied)) {
         lastFullVibe = fullVibeNow
+        scope.rememberStyle(oldVibe, 'height')
         oldVibe.style.setProperty('height', targetHeight, 'important')
         LOG_CHANGE('syncFullVibe', 'изменена высота старого Vibe', { enabled: fullVibeNow, height: targetHeight, target: nodeName(oldVibe) })
     }
 }
 ```
-
-## Связанные документы
-
-- [Переходы палитры и цветовые фильтры](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/INTERACTIONS.md)
-- [Сборка и проверки](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/DEVELOPMENT.md)
