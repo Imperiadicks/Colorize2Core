@@ -192,7 +192,7 @@ const applyVars = vars => {
 `#colorize-style` содержит сгенерированный CSS. `applyInlinePaletteVars` и
 `cleanupInlinePaletteLeaks` удаляют прежние inline-значения, способные перекрывать
 новые переменные. Массовая запись палитры через `documentElement.style` не используется.
-Переход градиента выполняется модулем [palette-transition](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/INTERACTIONS.md).
+Переход градиента выполняется модулем `src/palette-transition.ts`.
 
 ## Очередь перекраски
 

@@ -27,8 +27,6 @@ pnpm dev
 ## Техническая документация
 
 - [TypeScript, палитра и генерируемый CSS](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/THEME_LOGIC.md)
-- [Переходы и взаимодействие с CSS](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/INTERACTIONS.md)
-- [Разработка и проверки](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/DEVELOPMENT.md)
 
 ## Репозитории
 
