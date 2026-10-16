@@ -335,3 +335,389 @@ function syncFullVibe(force = false) {
     }
 }
 ```
+
+## Плавные переходы палитры: `createPaletteTransition`
+
+Файл: `src/palette-transition.ts`.
+
+Фабрика создаёт контроллер переходов между фоновыми градиентами. Параметр
+`duration` задаёт длительность в миллисекундах; значение по умолчанию — 920.
+Состояния активных переходов хранятся в `Map<HTMLElement, any>`.
+
+### Методы контроллера
+
+| Метод | Входные данные | Действие |
+| --- | --- | --- |
+| `before()` | Нет | Возвращает снимки `{ node, from }` до записи новой палитры |
+| `after(snapshots)` | Массив снимков | Сравнивает прежние и новые градиенты, создаёт анимированные слои |
+| `dispose()` | Нет | Удаляет активные слои и отключает обработчики reduced motion и pagehide |
+
+Первый вызов `before()` возвращает пустой массив: исходный фон отображается без
+перехода. После первого `after()` контроллер считается инициализированным.
+При `prefers-reduced-motion: reduce` снимки и новые анимации не создаются.
+
+### Расчёт промежуточного состояния
+
+`paintedGradient(state)` получает прогресс текущей Web Animation и смешивает RGB
+остановок старого и нового градиентов с учётом альфа-канала. При смене палитры
+до завершения предыдущего перехода этот результат становится исходным градиентом
+следующего перехода. Структура градиента должна совпадать: сравнение выполняется
+после замены цветовых компонентов на `#`. Фоны `none` и `url(...)` пропускаются.
+
+### Создание и завершение перехода
+
+`after()` добавляет `.colorize-palette-background` в начало контейнера и анимирует
+его opacity от 1 до 0. Если computed position контейнера — `static`, временно
+устанавливается `relative`. `finish(node)` отменяет анимацию, удаляет слой и атрибут
+`data-colorize-palette-fade`, восстанавливает изменённое позиционирование.
+Восстановление выполняется только при сохранении установленного значения `relative`.
+
+`clear()` завершает все переходы. `onMotion()` вызывает `clear()` при включении
+reduced motion. Обработчик `pagehide` очищает переходы при уходе со страницы.
+CSS слоя и порядок наложения определены в `Colorize-2/src/pulsecolor-controls.css`.
+
+### Реализация
+
+```ts
+export function createPaletteTransition(duration = 920) {
+    const active = new Map<HTMLElement, any>()
+    const colorPattern = /rgba?\([^)]*\)/g
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)')
+    let initialized = false
+    const finish = (node: HTMLElement) => {
+        const state = active.get(node)
+        if (!state) return
+        state.animation?.cancel()
+        state.layer.remove()
+        node.removeAttribute('data-colorize-palette-fade')
+        if (state.positionChanged && node.style.position === 'relative') {
+            if (state.position) node.style.setProperty('position', state.position, state.positionPriority)
+            else node.style.removeProperty('position')
+        }
+        active.delete(node)
+    }
+    const paintedGradient = (state: any) => {
+        const progress = Number(state.animation?.effect?.getComputedTiming().progress || 0)
+        const from = state.from.match(colorPattern) || []
+        let index = 0
+        return state.to.replace(colorPattern, (to: string) => {
+            const a = from[index++]?.match(/[\d.]+/g)?.map(Number)
+            const b = to.match(/[\d.]+/g)?.map(Number)
+            if (!a || !b) return to
+            const alphaA = a[3] ?? 1, alphaB = b[3] ?? 1
+            const alpha = alphaA * (1 - progress) + alphaB * progress
+            const channels = [0, 1, 2].map(i => alpha ? (a[i] * alphaA * (1 - progress) + b[i] * alphaB * progress) / alpha : 0)
+            return `rgba(${channels.join(',')},${alpha})`
+        })
+    }
+    const clear = () => { for (const node of Array.from(active.keys())) finish(node) }
+    const onMotion = () => { if (reduced.matches) clear() }
+    reduced.addEventListener('change', onMotion)
+    window.addEventListener('pagehide', clear)
+    return {
+        before() {
+            if (!initialized || reduced.matches) return []
+            return Array.from(document.querySelectorAll<HTMLElement>(
+                '[class*="CommonLayout_root"], [class*="WithTopBanner_root"], [class*="VibePage_root"]',
+            )).filter(node => node.isConnected).map(node => {
+                const previous = active.get(node)
+                const from = previous ? paintedGradient(previous) : getComputedStyle(node).backgroundImage
+                finish(node)
+                return { node, from }
+            })
+        },
+        after(snapshots: Array<{ node: HTMLElement; from: string }>) {
+            initialized = true
+            if (reduced.matches) return
+            for (const { node, from } of snapshots) {
+                if (!node.isConnected || from === 'none' || /url\(/i.test(from)) continue
+                const computed = getComputedStyle(node)
+                const to = computed.backgroundImage
+                if (to === from || to === 'none' || /url\(/i.test(to)) continue
+                if (from.replace(colorPattern, '#') !== to.replace(colorPattern, '#')) continue
+                const layer = document.createElement('div')
+                layer.className = 'colorize-palette-background'
+                layer.setAttribute('aria-hidden', 'true')
+                layer.style.backgroundImage = from
+                const position = node.style.getPropertyValue('position')
+                const positionPriority = node.style.getPropertyPriority('position')
+                const positionChanged = computed.position === 'static'
+                if (positionChanged) node.style.position = 'relative'
+                node.setAttribute('data-colorize-palette-fade', '')
+                node.prepend(layer)
+                const animation = layer.animate([{ opacity: 1 }, { opacity: 0 }], {
+                    duration, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'forwards',
+                })
+                const state = { layer, animation, from, to, position, positionPriority, positionChanged }
+                active.set(node, state)
+                animation.finished.then(() => { if (active.get(node) === state) finish(node) }).catch(() => {})
+            }
+        },
+        dispose() {
+            clear()
+            reduced.removeEventListener('change', onMotion)
+            window.removeEventListener('pagehide', clear)
+        },
+    }
+}
+```
+
+### Подключение к runtime
+
+`applyVars` вызывает `before()` перед заменой содержимого `#colorize-style`
+и `after()` после записи новых CSS-переменных. `dispose()` регистрируется
+в области ресурсов и вызывается при отключении темы.
+
+```ts
+const paletteTransition = createPaletteTransition()
+scope.cleanup(() => paletteTransition.dispose())
+```
+
+## Перекраска иконок: `createWheelIconTint`
+
+Файл: `src/wheel-icon-tint.ts`.
+
+Фабрика возвращает функцию обновления CSS-фильтра. Целевой цвет берётся из
+`--ym-controls-color-secondary-text-enabled` через скрытый элемент `span`
+и `getComputedStyle`. После чтения элемент удаляется.
+
+### Численные функции
+
+| Функция | Назначение |
+| --- | --- |
+| `clamp(x, max)` | Ограничивает значение диапазоном от 0 до max; по умолчанию max = 255 |
+| `transform(c, m)` | Применяет матрицу 3×3 к RGB-вектору и ограничивает каналы |
+| `simulate(p)` | Вычисляет RGB-результат заданного набора фильтров |
+| `fit(target)` | Подбирает параметры, минимизирующие сумму квадратов отклонений каналов от target |
+
+Порядок параметров `p`: invert, sepia, saturate, hue-rotate, brightness, contrast.
+Начальный `brightness(0)` обнуляет входное изображение, поэтому расчёт фильтра
+начинается с чёрного цвета. `simulate` последовательно моделирует инверсию,
+сепию, насыщенность, поворот оттенка, яркость и контраст.
+
+`fit` выполняет поиск из четырёх начальных углов: 0°, 90°, 180° и 270°.
+Для каждого варианта выполняется 50 итераций; параметры проверяются в двух
+направлениях, шаг на каждой итерации умножается на 0.91. Hue циклически
+нормализуется в диапазон 0–360°, остальные параметры ограничиваются заданными
+пределами. Полученный цвет является численным приближением целевого RGB.
+
+### Кэш и область действия
+
+Кэш `Map<string, string>` хранит до 32 результатов по строке computed color.
+При превышении лимита удаляется самый ранний добавленный ключ.
+Повторный цвет использует готовый фильтр без выполнения поиска.
+
+Функция обновления записывает результат в `--colorize-wheel-icon-filter`
+на `document.documentElement`. Применение ограничено CSS темы: изображения
+действий `WHEEL_SETTING_ITEM` и `WHEEL_RESHUFFLE_ITEM`. Фильтр не назначается
+обложкам остальных элементов колеса. При остановке Core переменная удаляется.
+
+### Реализация
+
+```ts
+export function createWheelIconTint() {
+    const cache = new Map<string, string>()
+    const clamp = (x: number, max = 255) => Math.max(0, Math.min(max, x))
+    const transform = (c: number[], m: number[]) => [0, 1, 2].map(i => clamp(m[i * 3] * c[0] + m[i * 3 + 1] * c[1] + m[i * 3 + 2] * c[2]))
+    const simulate = (p: number[]) => {
+        let c = [255 * p[0], 255 * p[0], 255 * p[0]]
+        const t = p[1]
+        c = transform(c, [1 - .607 * t, .769 * t, .189 * t, .349 * t, 1 - .314 * t, .168 * t, .272 * t, .534 * t, 1 - .869 * t])
+        const s = p[2]
+        c = transform(c, [.213 + .787 * s, .715 - .715 * s, .072 - .072 * s, .213 - .213 * s, .715 + .285 * s, .072 - .072 * s, .213 - .213 * s, .715 - .715 * s, .072 + .928 * s])
+        const co = Math.cos(p[3] * Math.PI / 180), si = Math.sin(p[3] * Math.PI / 180)
+        c = transform(c, [.213 + .787 * co - .213 * si, .715 - .715 * co - .715 * si, .072 - .072 * co + .928 * si,
+            .213 - .213 * co + .143 * si, .715 + .285 * co + .140 * si, .072 - .072 * co - .283 * si,
+            .213 - .213 * co - .787 * si, .715 - .715 * co + .715 * si, .072 + .928 * co + .072 * si])
+        return c.map(x => clamp((clamp(x * p[4]) - 127.5) * p[5] + 127.5))
+    }
+    const fit = (target: number[]) => {
+        const limits = [1, 1, 30, 360, 3, 3]
+        const loss = (p: number[]) => simulate(p).reduce((sum, x, i) => sum + (x - target[i]) ** 2, 0)
+        let best: number[] = [], score = Infinity
+        for (const angle of [0, 90, 180, 270]) {
+            let p = [.5, 1, 5, angle, 1, 1], value = loss(p)
+            const steps = [.2, .3, 6, 70, .5, .5]
+            for (let iteration = 0; iteration < 50; iteration++) {
+                for (let i = 0; i < 6; i++) for (const direction of [-1, 1]) {
+                    const next = p.slice()
+                    next[i] = i === 3 ? (next[i] + direction * steps[i] + 360) % 360 : clamp(next[i] + direction * steps[i], limits[i])
+                    const candidate = loss(next)
+                    if (candidate < value) { p = next; value = candidate }
+                }
+                steps.forEach((_, i) => { steps[i] *= .91 })
+            }
+            if (value < score) { best = p; score = value }
+        }
+        return `brightness(0) invert(${best[0]}) sepia(${best[1]}) saturate(${best[2]}) hue-rotate(${best[3]}deg) brightness(${best[4]}) contrast(${best[5]})`
+    }
+    return () => {
+        const probe = document.createElement('span')
+        probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;color:var(--ym-controls-color-secondary-text-enabled) !important'
+        document.documentElement.append(probe)
+        const color = getComputedStyle(probe).color
+        probe.remove()
+        const target = color.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+        if (!target || target.length !== 3) return
+        let filter = cache.get(color)
+        if (!filter) {
+            filter = fit(target)
+            cache.set(color, filter)
+            if (cache.size > 32) cache.delete(cache.keys().next().value!)
+        }
+        document.documentElement.style.setProperty('--colorize-wheel-icon-filter', filter)
+    }
+}
+```
+
+### Вызов при смене палитры
+
+Функция создаётся один раз на экземпляр runtime. `applyVars` вызывает её после
+записи палитры, когда токен целевого цвета уже имеет новое computed значение.
+
+```ts
+const updateWheelIconTint = createWheelIconTint()
+```
+
+## Управление ресурсами: `createRuntimeScope`
+
+Файл: `src/runtime-scope.ts`.
+
+Фабрика создаёт область ресурсов одного экземпляра runtime. Область хранит
+идентификаторы таймеров и кадров, наблюдатели DOM, созданные изображения,
+функции очистки и исходные значения изменяемых inline-свойств.
+
+### Регистрация ресурсов
+
+| Член области | Назначение |
+| --- | --- |
+| `disposed` | Признак завершённой области |
+| `cleanup(fn)` | Регистрация функции освобождения ресурса |
+| `listen(target, type, listener, options)` | Подключение события с автоматической регистрацией удаления обработчика |
+| `rememberStyle(node, ...properties)` | Сохранение исходного значения и приоритета inline-свойства |
+| `setTimeout(fn, delay, ...args)` | Одноразовый таймер с учётом идентификатора и проверкой активности |
+| `clearTimeout(id)` | Отмена таймера и удаление из реестра |
+| `setInterval(fn, delay)` | Периодический таймер с проверкой активности |
+| `requestAnimationFrame(fn)` | Кадр анимации с учётом идентификатора |
+| `cancelAnimationFrame(id)` | Отмена кадра и удаление из реестра |
+| `MutationObserver` | Конструктор наблюдателя, зарегистрированного в области |
+| `Image` | Конструктор изображения, зарегистрированного в области |
+| `dispose()` | Однократное освобождение всех зарегистрированных ресурсов |
+
+`rememberStyle` сохраняет каждое свойство узла только при первом обращении.
+Хранятся значение и приоритет, включая `important`. При очистке исходное значение
+восстанавливается; изначально отсутствовавшее свойство удаляется.
+
+### Порядок очистки
+
+1. Устанавливается `disposed = true`.
+2. Отключаются наблюдатели, отменяются таймеры и кадры анимации.
+3. У созданных изображений очищаются onload/onerror; незавершённая загрузка сбрасывается.
+4. Зарегистрированные функции очистки вызываются в обратном порядке.
+5. Восстанавливаются сохранённые inline-свойства, реестры ресурсов очищаются.
+
+Повторный `dispose()` завершается без действий. Новые таймеры и кадры после
+остановки не создаются; их методы возвращают 0. Callback наблюдателя, таймера
+или кадра проверяет состояние области перед выполнением.
+`cleanup` принимает значения неизвестного типа и регистрирует только функции,
+что допускает API подписок, не возвращающие функцию отписки.
+
+### Реализация
+
+```ts
+export function createRuntimeScope() {
+    let disposed = false
+    const timeouts = new Set<number>()
+    const intervals = new Set<number>()
+    const frames = new Set<number>()
+    const observers = new Set<MutationObserver>()
+    const images = new Set<HTMLImageElement>()
+    const cleanups: Array<() => void> = []
+    const styles = new Map<HTMLElement, Map<string, [string, string]>>()
+    const scope = {
+        get disposed() { return disposed },
+        cleanup(fn: unknown) { if (typeof fn === 'function') cleanups.push(fn as () => void) },
+        listen(target: EventTarget, type: string, listener: EventListener, options?: boolean | AddEventListenerOptions) {
+            target.addEventListener(type, listener, options)
+            cleanups.push(() => target.removeEventListener(type, listener, options))
+        },
+        rememberStyle(node: HTMLElement, ...properties: string[]) {
+            let saved = styles.get(node)
+            if (!saved) { saved = new Map(); styles.set(node, saved) }
+            for (const property of properties) if (!saved.has(property)) {
+                saved.set(property, [node.style.getPropertyValue(property), node.style.getPropertyPriority(property)])
+            }
+        },
+        setTimeout(fn: (...args: any[]) => void, delay = 0, ...args: any[]) {
+            if (disposed) return 0
+            const id = window.setTimeout(() => { timeouts.delete(id); if (!disposed) fn(...args) }, delay)
+            timeouts.add(id)
+            return id
+        },
+        clearTimeout(id: number) { window.clearTimeout(id); timeouts.delete(id) },
+        setInterval(fn: () => void, delay: number) {
+            if (disposed) return 0
+            const id = window.setInterval(() => { if (!disposed) fn() }, delay)
+            intervals.add(id)
+            return id
+        },
+        requestAnimationFrame(fn: FrameRequestCallback) {
+            if (disposed) return 0
+            const id = window.requestAnimationFrame(time => { frames.delete(id); if (!disposed) fn(time) })
+            frames.add(id)
+            return id
+        },
+        cancelAnimationFrame(id: number) { window.cancelAnimationFrame(id); frames.delete(id) },
+        MutationObserver: class extends MutationObserver {
+            constructor(callback: MutationCallback) {
+                super((records, observer) => { if (!disposed) callback(records, observer) })
+                observers.add(this)
+            }
+        },
+        Image: class extends Image {
+            constructor(width?: number, height?: number) { super(width, height); images.add(this) }
+        },
+        dispose() {
+            if (disposed) return
+            disposed = true
+            observers.forEach(observer => observer.disconnect())
+            timeouts.forEach(id => window.clearTimeout(id))
+            intervals.forEach(id => window.clearInterval(id))
+            frames.forEach(id => window.cancelAnimationFrame(id))
+            images.forEach(image => { image.onload = image.onerror = null; if (!image.complete) image.src = '' })
+            for (const cleanup of cleanups.reverse()) cleanup()
+            for (const [node, properties] of styles) for (const [key, [value, priority]] of properties) {
+                if (value) node.style.setProperty(key, value, priority)
+                else node.style.removeProperty(key)
+            }
+            styles.clear(); observers.clear(); timeouts.clear(); intervals.clear(); frames.clear(); images.clear()
+        },
+    }
+    return scope
+}
+```
+
+### Подключение к runtime
+
+`startRuntime()` создаёт область и использует её конструкторы и методы вместо
+глобальных аналогов. В области также регистрируются отписка от настроек,
+очистка фоновых слоёв, восстановление обёрток history и контроллер переходов.
+
+```ts
+const scope = createRuntimeScope()
+const {
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    requestAnimationFrame,
+    cancelAnimationFrame,
+    MutationObserver,
+    Image,
+} = scope
+```
+
+После `scope.dispose()` функция остановки Core дополнительно отменяет ожидающий
+анализ обложки, удаляет `#colorize-style`, управляющие классы и фильтр колеса.
+Внешний наблюдатель таблиц стилей не входит в эту область: он остаётся активным
+для обнаружения повторного включения темы. Повторное включение создаёт новую
+область ресурсов и новый экземпляр runtime.
