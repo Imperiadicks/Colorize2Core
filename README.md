@@ -1,41 +1,25 @@
 # Colorize2Core
 
-Самостоятельный проект runtime-скрипта для темы Colorize 2. Формат PulseSync: `script`.
+Colorize2Core — скриптовый аддон для [темы Colorize 2](https://pulsesync.dev/store/5510a44e-9425-465d-8e1a-e929b1da27ec) в PulseSync. Он анализирует обложку текущего трека и формирует палитру, которую тема использует для оформления Яндекс Музыки.
 
-- `src/` — палитра, фон, переходы цветов, контраст Vibe и эффекты.
-- `addon/` — иконка, баннер и документация.
-- `addon.config.mjs` — метаданные. ID сохранён: `31c62ba2-b6f6-4ba7-934e-39146eccfe69`.
+## Возможности
 
-Настройки находятся в [Colorize-2](https://github.com/Imperiadicks/Colorize-2). Runtime читает их через `pulsesyncApi.getSettings('Colorize 2')`.
+- Автоматическая смена палитры по обложке трека или использование выбранного цвета.
+- Плавные переходы фоновых градиентов при изменении палитры.
+- Фоновая обложка с анимацией и статичным режимом.
+- Автозатемнение кнопок Vibe в зависимости от яркости фона.
+- Перекраска специальных иконок настройки и перемешивания «Моей волны».
+- Управление размером Vibe и эффектом масштабирования обложки.
 
-```bash
-pnpm install
-pnpm build
-pnpm sync
-pnpm build:sync
-pnpm dev
-```
+## Работа с Colorize 2
 
-Сборка: `dist/<id>/`. Установка сохраняет настройки и резервирует предыдущую версию.
-Путь установки задаётся через `PULSESYNC_ADDONS_DIR`.
+Colorize 2 содержит CSS, изображения и настройки. Colorize2Core выполняет динамическую логику: обновляет цвета, создаёт фоновые слои и управляет эффектами. Настройки всех этих функций находятся в теме Colorize 2.
 
-Проверки: `pnpm test:ui`, `pnpm test:contrast`, `pnpm test:performance`.
-Проверки интерфейса используют CSS соседнего проекта Colorize-2.
+Для работы необходимо включить Colorize2Core и выбрать тему Colorize 2 в PulseSync. При отключении темы Core останавливает обработку и удаляет свои эффекты. При повторном включении темы работа возобновляется автоматически.
 
-Тема и runtime устанавливаются отдельно. В PulseSync включите Colorize2Core и выберите Colorize 2.
+## Репозитории и документация
 
-## Техническая документация
-
-- [TypeScript, палитра и генерируемый CSS](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/THEME_LOGIC.md)
-
-## Репозитории
-
-- [Тема Colorize 2](https://github.com/Imperiadicks/Colorize-2)
-- [Скрипт Colorize2Core](https://github.com/Imperiadicks/Colorize2Core)
-
-Для совместной разработки оба репозитория размещаются в одной родительской папке:
-
-```bash
-git clone https://github.com/Imperiadicks/Colorize-2.git
-git clone https://github.com/Imperiadicks/Colorize2Core.git
-```
+- [Colorize2Core — исходники скрипта](https://github.com/Imperiadicks/Colorize2Core)
+- [Colorize 2 — исходники темы](https://github.com/Imperiadicks/Colorize-2)
+- [TypeScript: архитектура, функции и код Colorize2Core](https://github.com/Imperiadicks/Colorize2Core/blob/main/addon/docs/THEME_LOGIC.md)
+- [CSS: оформление и правила Colorize 2](https://github.com/Imperiadicks/Colorize-2/blob/main/addon/docs/CSS_VISUAL.md)

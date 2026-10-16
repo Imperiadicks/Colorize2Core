@@ -2,7 +2,7 @@ export default {
     id: '31c62ba2-b6f6-4ba7-934e-39146eccfe69',
     directoryName: '31c62ba2-b6f6-4ba7-934e-39146eccfe69',
     name: 'Colorize2Core',
-    description: 'Динамическая палитра, фон и эффекты темы Colorize 2.',
+    description: 'ОБЯЗАТЕЛЬНЫЙ скрипт для аддона "colorize 2" и работает только с ним.',
     version: '1.0.0',
     author: 'imperiadicks',
     type: 'script',
